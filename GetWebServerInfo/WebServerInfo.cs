@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Hosting.Server;
 using System.Collections;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -7,8 +9,47 @@ namespace GetWebServerInfo;
 
 public class WebServerInfo
 {
+    private readonly IServiceProvider? _service;
+    public WebServerInfo()
+    {
+
+    }
+
+    public WebServerInfo(IServiceProvider service)
+    {
+        _service = service;
+    }
+
     public RunTimeInfo Runtime => new();
     public EnvironmentInfo Environment => new();
+
+    [JsonExtensionData]
+    public Dictionary<string, object> AdditionalData
+    {
+        get
+        {
+            var dict = new Dictionary<string, object>();
+            if (_service != null)
+            {
+                //https://stackoverflow.com/questions/71473870/how-can-i-know-if-my-app-is-running-under-kestrel-or-http-sys
+                var context = _service.GetService<IHttpContextAccessor>()?.HttpContext; //TODO: Must use Services.AddHttpContextAccessor();
+                if (context != null)
+                {
+                    dict.Add("isKestrel", context.Request.Headers.GetType().ToString().Contains(".Kestrel."));
+                    dict.Add("isHTTPsys", context.Request.Headers.GetType().ToString().Contains(".HttpSys."));
+                }
+                //https://stackoverflow.com/questions/48546843/iserveraddressesfeature-addresses-empty-when-running-under-dotnet-exe
+                var server = _service.GetService<IServer>();
+                var addressFeature = server.Features.Get<IServerAddressesFeature>();
+                if (addressFeature != null)
+                {
+                    dict.Add("addresses", addressFeature.Addresses.ToList());
+                }
+            }
+
+            return dict;
+        }
+    }
 }
 
 public class RunTimeInfo
@@ -41,8 +82,9 @@ public class EnvironmentInfo
     public Hashtable Variables => new(Environment.GetEnvironmentVariables());
 
     public bool IsInContainer => Variables.ContainsKey("DOTNET_RUNNING_IN_CONTAINER") &&
-                                 bool.Parse(Variables["DOTNET_RUNNING_IN_CONTAINER"].ToString());
+                                 bool.Parse(Variables["DOTNET_RUNNING_IN_CONTAINER"]?.ToString() ?? "false");
 
+    //https://stackoverflow.com/questions/61415922/how-do-i-determine-webserver-type-at-runtime-in-asp-net-core
     public string WebServer
     {
         get
